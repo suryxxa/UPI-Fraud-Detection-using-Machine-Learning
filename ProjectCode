@@ -1,0 +1,95 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score, ConfusionMatrixDisplay, classification_report
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.impute import SimpleImputer
+
+# Load dataset (handling bad lines)
+data = pd.read_csv('UPI payment fraud detection.csv', on_bad_lines='skip')
+print(data.head())
+print(data.info())
+print(data.describe())
+
+# Drop unnecessary columns early to save memory
+data = data.drop(columns=['nameOrig', 'nameDest'])
+
+# Encoding categorical variables
+label_encoder = LabelEncoder()
+data['type'] = label_encoder.fit_transform(data['type'])
+
+# Handling missing values
+imputer = SimpleImputer(strategy='median')
+numeric_cols = data.select_dtypes(include=[np.number]).columns
+data[numeric_cols] = imputer.fit_transform(data[numeric_cols])
+
+# Feature Engineering
+data['amount_to_balance_ratio'] = data['amount'] / (data['oldbalanceOrg'] + 1)
+data['balance_difference'] = data['oldbalanceOrg'] - data['newbalanceOrig']
+data['high_transaction'] = (data['amount'] > 50000).astype(int)
+
+# Splitting features and target
+X = data.drop(columns=['isFraud'])
+y = data['isFraud']
+
+# Scaling numerical features
+scaler = StandardScaler()
+X = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
+
+# Train-test split (Reduced training size for speed)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+X_train, _, y_train, _ = train_test_split(X_train, y_train, test_size=0.7, random_state=42)  # Further reduce training data
+
+# Optimized models
+models = {
+    'Logistic Regression': LogisticRegression(),
+    'Support Vector Classifier': LinearSVC(max_iter=1000),
+    'Random Forest': RandomForestClassifier(n_estimators=10, max_depth=5, n_jobs=-1, random_state=42),
+    'XGBoost': XGBClassifier(n_estimators=10, max_depth=3, use_label_encoder=False, eval_metric='logloss', n_jobs=-1)
+}
+
+# Train and evaluate models
+for name, model in models.items():
+    print(f'Training {name}...')
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    y_pred_proba = model.predict_proba(X_test)[:, 1] if hasattr(model, 'predict_proba') else np.zeros_like(y_pred)
+
+    print(f'---{name}---')
+    print('ROC-AUC Score:', roc_auc_score(y_test, y_pred_proba))
+    print(classification_report(y_test, y_pred))
+    ConfusionMatrixDisplay.from_estimator(model, X_test, y_test)
+    plt.title(f'Confusion Matrix: {name}')
+    plt.show()
+
+# Feature importance for Random Forest
+plt.figure(figsize=(10, 6))
+importances = models['Random Forest'].feature_importances_
+feature_names = X.columns
+sns.barplot(x=importances, y=feature_names)
+plt.title('Feature Importance (Random Forest)')
+plt.show()
+
+# Predicting with new data
+new_data = pd.DataFrame([{
+    'step': 10,
+    'type': label_encoder.transform(['CASH_OUT'])[0],
+    'amount': 10000,
+    'oldbalanceOrg': 20000,
+    'newbalanceOrig': 10000,
+    'oldbalanceDest': 50000,
+    'newbalanceDest': 60000,
+    'isFlaggedFraud': 1,
+    'amount_to_balance_ratio': 10000 / (20000 + 1),
+    'balance_difference': 20000 - 10000,
+    'high_transaction': int(10000 > 50000)
+}])
+new_data = pd.DataFrame(scaler.transform(new_data), columns=X.columns)
+prediction = models['Random Forest'].predict(new_data)
+print('Prediction (1 = Fraud, 0 = Not Fraud):', prediction)
