@@ -21,12 +21,6 @@ This is my final year project where I built a machine learning model to detect U
 - Matplotlib, Seaborn
 - Flask (if used)
 
-## 🚀 How to Run
-
-# Clone the repo
-git clone https://github.com/yourusername/upi-fraud-detection.git
-cd upi-fraud-detection
-
 # Install dependencies
 pip install -r requirements.txt
 
